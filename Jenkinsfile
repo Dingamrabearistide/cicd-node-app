@@ -9,7 +9,7 @@ pipeline {
 
         DOCKER_IMAGE_TAG = "latest"
 
-        ANSIBLE_SERVER = "root@10.54.154.144"
+        ANSIBLE_SERVER = "ansible@10.0.2.15"
 
     }
 
