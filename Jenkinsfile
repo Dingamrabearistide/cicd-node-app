@@ -3,8 +3,8 @@ pipeline {
 
     environment {
         DOCKER_IMAGE_NAME = 'dingamrabearistide/test-node'
-        DOCKER_IMAGE_TAG = 'latest'
-        ANSIBLE_SERVER = 'ansible@10.0.2.15'
+        DOCKER_IMAGE_TAG  = 'latest'
+        ANSIBLE_SERVER    = 'ansible@10.0.2.15'
     }
 
     stages {
@@ -43,10 +43,13 @@ pipeline {
                     sh '''
                         set -eu
 
+                        export SONAR_TOKEN="${SONAR_AUTH_TOKEN}"
+
                         sonar-scanner \
                             -Dsonar.projectKey=test-node \
                             -Dsonar.sources=. \
-                            '-Dsonar.exclusions=node_modules/**'
+                            -Dsonar.exclusions='**/node_modules/**,**/coverage/**' \
+                            -Dsonar.host.url="${SONAR_HOST_URL}"
                     '''
                 }
             }
@@ -72,6 +75,8 @@ pipeline {
 
                         docker push \
                             "${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}"
+
+                        docker logout
                     '''
                 }
             }
