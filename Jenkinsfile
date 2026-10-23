@@ -4,7 +4,7 @@ pipeline {
     environment {
         DOCKER_IMAGE_NAME = 'dingamrabearistide/test-node'
         DOCKER_IMAGE_TAG  = 'latest'
-        ANSIBLE_SERVER    = 'ansible@10.0.2.15'
+        ANSIBLE_SERVER    = 'ansible@10.54.154.144'
     }
 
     stages {
@@ -29,7 +29,6 @@ pipeline {
             steps {
                 sh '''
                     set -eu
-
                     docker build \
                         --rm \
                         -t "${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}" .
@@ -40,17 +39,17 @@ pipeline {
         stage('SonarQube Analysis') {
             steps {
                 withSonarQubeEnv('sonar_qube') {
-                    sh '''
-                        set -eu
-
-                        export SONAR_TOKEN="${SONAR_AUTH_TOKEN}"
-
-                        sonar-scanner \
-                            -Dsonar.projectKey=test-node \
-                            -Dsonar.sources=. \
-                            -Dsonar.exclusions='**/node_modules/**,**/coverage/**' \
-                            -Dsonar.host.url="${SONAR_HOST_URL}"
-                    '''
+                    script {
+                        def scannerHome = tool 'sonar-scanner' // Nom que tu as mis dans Manage Jenkins > Tools
+                        sh """
+                            set -eu
+                            ${scannerHome}/bin/sonar-scanner \
+                                -Dsonar.projectKey=test-node \
+                                -Dsonar.sources=. \
+                                -Dsonar.exclusions=**/node_modules/**,**/coverage/** \
+                                -Dsonar.host.url=${SONAR_HOST_URL}
+                        """
+                    }
                 }
             }
         }
@@ -67,15 +66,12 @@ pipeline {
                     sh '''
                         set -eu
                         set +x
-
                         printf '%s' "$DOCKERHUB_PASSWORD" |
                             docker login \
                                 --username "$DOCKERHUB_USERNAME" \
                                 --password-stdin
-
                         docker push \
                             "${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}"
-
                         docker logout
                     '''
                 }
@@ -86,7 +82,6 @@ pipeline {
             steps {
                 sh '''
                     set -eu
-
                     ssh \
                         -o BatchMode=yes \
                         "${ANSIBLE_SERVER}" \
@@ -105,12 +100,9 @@ pipeline {
     post {
         success {
             echo 'PIPELINE SUCCESS'
-            echo 'Application successfully deployed'
         }
-
         failure {
             echo 'PIPELINE FAILED'
-            echo 'Check Jenkins Console Output'
         }
     }
 }
