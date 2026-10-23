@@ -46,8 +46,9 @@ pipeline {
                             ${scannerHome}/bin/sonar-scanner \
                                 -Dsonar.projectKey=test-node \
                                 -Dsonar.sources=. \
-                                -Dsonar.exclusions=**/node_modules/**,**/coverage/** \
-                                -Dsonar.host.url=${SONAR_HOST_URL}
+                                -Dsonar.exclusions="**/node_modules/**,**/coverage/**" \
+                                -Dsonar.host.url=$
+                                 {env.SONAR_HOST_URL}
                         """
                     }
                 }
