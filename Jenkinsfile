@@ -4,7 +4,7 @@ pipeline {
     environment {
         DOCKER_IMAGE_NAME = 'dingamrabearistide/test-node'
         DOCKER_IMAGE_TAG  = 'latest'
-        ANSIBLE_SERVER    = 'ansible@10.54.154.171'
+        ANSIBLE_SERVER    = 'ansible@10.0.2.15'
     }
 
     stages {
