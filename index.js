@@ -4,7 +4,7 @@ const app = express();
 
 app.get('/', (req, res) => {
 
-    res.send('Hello, Students ARISTIDE,NATACHA,CHLOE! Our CI/CD Pipeline is working');
+    res.send('Hello, Students! Our CI/CD Pipeline is working');
 
 });
 
