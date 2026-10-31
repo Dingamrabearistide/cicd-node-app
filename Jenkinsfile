@@ -89,14 +89,12 @@ export const environment = {
             }
         }
         stage('Deploy with Ansible') {
-            steps {
-                sshagent(['ansible-ssh-key']) {
-                    sh '''
-                        ssh -o StrictHostKeyChecking=no root@${ANSIBLE_IP} \
-                        "ansible-playbook /etc/ansible/playbook/deploy-tryrecruiters.yml -i /etc/ansible/hosts -e docker_image=${REGISTRY}/${IMAGE_NAME}:latest -e branch=${BRANCH_NAME}"
-                    '''
-                }
-            }
+    steps {
+        sshagent(['ansible-ssh-key']) {
+            sh '''
+                ssh -o StrictHostKeyChecking=no root@10.54.154.144 \
+                "ansible-playbook /etc/ansible/playbook/deploy-tryrecruiters.yml -i /etc/ansible/hosts -e docker_image=${REGISTRY}/${IMAGE_NAME}:latest"
+            '''
         }
     }
 }
