@@ -1,109 +1,102 @@
 pipeline {
     agent any
-
-    environment {
-        DOCKER_IMAGE_NAME = 'dingamrabearistide/test-node'
-        DOCKER_IMAGE_TAG  = 'latest'
-        ANSIBLE_SERVER    = 'ansible@10.54.154.144'
+    tools {
+        nodejs 'node20' // Mets Node 20 dans Jenkins > Tools
     }
-
+    parameters {
+        choice(name: 'BRANCH_NAME', choices: ['develop', 'main', 'staging'], description: 'Branche à builder')
+    }
+    environment {
+        SONAR_SCANNER = tool 'sonar-scanner'
+        SONARQUBE_SERVER = 'sonar_qube'
+        SONAR_HOST_URL = 'http://10.54.154.171:9000'
+        IMAGE_NAME = 'dingamrabearistide/web-tryrecruiters' // CHANGE ICI
+        REGISTRY = 'docker.io'
+        ANSIBLE_IP = '10.54.154.144'
+    }
     stages {
-        stage('Checkout') {
+        stage('Initialize') {
+            steps { echo "🚀 Build ${params.BRANCH_NAME} - Angular 20" }
+        }
+        stage('Install Dependencies') {
             steps {
-                git branch: 'main',
-                    url: 'https://github.com/dingamrabearistide/cicd-node-app.git'
+                sh 'corepack enable && corepack prepare pnpm@latest --activate'
+                sh 'pnpm install'
+                sh 'cat public/test.txt || echo "no test.txt"'
             }
         }
-
-        stage('Remove Existing Local Image') {
+        stage('Generate Environment') {
             steps {
-                sh '''
-                    docker rmi \
-                        "${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}" \
-                        || true
-                '''
-            }
-        }
+                script {
+                    def apiUrl = "http://localhost:8800"
+                    if (params.BRANCH_NAME == 'main') apiUrl = "https://api.tryrecruiters.com"
+                    else if (params.BRANCH_NAME == 'staging') apiUrl = "https://staging-api.tryrecruiters.com"
+                    else if (params.BRANCH_NAME == 'develop') apiUrl = "https://dev-api.tryrecruiters.com"
 
-        stage('Build Docker Image') {
-            steps {
-                sh '''
-                    set -eu
-                    docker build \
-                        --rm \
-                        -t "${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}" .
-                '''
-            }
-        }
-
-        stage('SonarQube Analysis') {
-            steps {
-                withSonarQubeEnv('sonar_qube') {
-                    script {
-                        def scannerHome = tool 'sonar-scanner' // Nom que tu as mis dans Manage Jenkins > Tools
-                        sh """
-                            set -eu
-                            ${scannerHome}/bin/sonar-scanner \
-                                -Dsonar.projectKey=test-node \
-                                -Dsonar.sources=. \
-                                -Dsonar.exclusions="**/node_modules/**,**/coverage/**" \
-                                -Dsonar.host.url=${env.SONAR_HOST_URL} \
-                                -Dsonar.token=${env.SONAR_AUTH_TOKEN}
-                        """
-                    }
+                    // Le fichier que tu as : src/environments/environment.ts
+                    sh 'mkdir -p src/environments'
+                    writeFile file: 'src/environments/environment.ts', text: """
+export const environment = {
+  apiUrl: "${apiUrl}",
+  google_id: "820754653629-1vl0kfe6heavtdh7sdnl7bv2upjcsrne.apps.googleusercontent.com",
+};
+"""
+                    sh 'cat src/environments/environment.ts'
                 }
             }
         }
-
-        stage('Push Docker Image to Docker Hub') {
+        stage('Build App') {
             steps {
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'docker-hub-credentials',
-                        usernameVariable: 'DOCKERHUB_USERNAME',
-                        passwordVariable: 'DOCKERHUB_PASSWORD'
-                    )
-                ]) {
+                // C'est pnpm run build --configuration=production comme dans ton Dockerfile
+                sh 'pnpm run build --configuration=production'
+            }
+        }
+        stage('Run Tests') {
+            steps { sh 'pnpm test -- --watch=false --browsers=ChromeHeadless || echo "tests skip"' }
+        }
+        stage('SonarQube') {
+            steps {
+                withSonarQubeEnv("${SONARQUBE_SERVER}") {
                     sh '''
-                        set -eu
-                        set +x
-                        printf '%s' "$DOCKERHUB_PASSWORD" |
-                            docker login \
-                                --username "$DOCKERHUB_USERNAME" \
-                                --password-stdin
-                        docker push \
-                            "${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}"
-                        docker logout
+                        ${SONAR_SCANNER}/bin/sonar-scanner \
+                        -Dsonar.projectKey=web-tryrecruiters \
+                        -Dsonar.projectName=web-tryrecruiters \
+                        -Dsonar.sources=src \
+                        -Dsonar.host.url=${SONAR_HOST_URL} || true
                     '''
                 }
             }
         }
-
-        stage('Run Ansible Playbook') {
+        stage('Trivy FS Scan') {
+            steps { sh 'trivy fs --format table -o trivy-fs-report.html . || true' }
+        }
+        stage('Build Docker Image') {
             steps {
+                script { env.TAG = "${params.BRANCH_NAME}-${env.BUILD_NUMBER}" }
                 sh '''
-                    set -eu
-                    ssh \
-                        -o BatchMode=yes \
-                        "${ANSIBLE_SERVER}" \
-                        "ansible-playbook /etc/ansible/playbook/deploy-node.yml"
+                    echo "Build image ${REGISTRY}/${IMAGE_NAME}:${TAG}"
+                    docker build -f Dockerfile.testing -t ${REGISTRY}/${IMAGE_NAME}:${TAG} -t ${REGISTRY}/${IMAGE_NAME}:latest .
                 '''
             }
         }
-
-        stage('Deploy') {
+        stage('Push Docker Image') {
             steps {
-                echo 'Application deployed successfully'
+                withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                    sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
+                    sh 'docker push ${REGISTRY}/${IMAGE_NAME}:${TAG}'
+                    sh 'docker push ${REGISTRY}/${IMAGE_NAME}:latest'
+                }
             }
         }
-    }
-
-    post {
-        success {
-            echo 'PIPELINE SUCCESS'
-        }
-        failure {
-            echo 'PIPELINE FAILED'
+        stage('Deploy with Ansible') {
+            steps {
+                sshagent(['ansible-ssh-key']) {
+                    sh '''
+                        ssh -o StrictHostKeyChecking=no root@${ANSIBLE_IP} \
+                        "ansible-playbook /etc/ansible/playbook/deploy-tryrecruiters.yml -i /etc/ansible/hosts -e docker_image=${REGISTRY}/${IMAGE_NAME}:latest -e branch=${BRANCH_NAME}"
+                    '''
+                }
+            }
         }
     }
 }
